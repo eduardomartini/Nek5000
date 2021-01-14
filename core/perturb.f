@@ -63,8 +63,16 @@ c
          call cresvipp (resv1,resv2,resv3,h1,h2)
          call ophinv   (dv1,dv2,dv3,resv1,resv2,resv3,h1,h2,tolhv,nmxh)
          call opadd2   (vxp(1,jp),vyp(1,jp),vzp(1,jp),dv1,dv2,dv3)
-         call incomprp (vxp(1,jp),vyp(1,jp),vzp(1,jp),prp(1,jp))
-c
+
+         if ((npert==1) .and. (ifbase .eqv. .false.)) then
+         ! If only one perturbation is being computed, compute
+         ! incompressible field using the NL routine 
+         !  (uses krylov space proj.).
+           call incomprn (vxp(1,jp),vyp(1,jp),vzp(1,jp),prp(1,jp))
+         else            
+         ! Otherwise use the linearized version (no krylov  projection)
+           call incomprp (vxp(1,jp),vyp(1,jp),vzp(1,jp),prp(1,jp))
+         endif
       endif
 c
       return
