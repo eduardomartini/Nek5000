@@ -64,15 +64,15 @@ c
          call ophinv   (dv1,dv2,dv3,resv1,resv2,resv3,h1,h2,tolhv,nmxh)
          call opadd2   (vxp(1,jp),vyp(1,jp),vzp(1,jp),dv1,dv2,dv3)
 
-         if ((npert==1) .and. (ifbase .eqv. .false.)) then
+c         if ((npert==1) .and. (ifbase .eqv. .false.)) then
          ! If only one perturbation is being computed, compute
          ! incompressible field using the NL routine 
          !  (uses krylov space proj.).
-           call incomprn (vxp(1,jp),vyp(1,jp),vzp(1,jp),prp(1,jp))
-         else            
+c           call incomprn (vxp(1,jp),vyp(1,jp),vzp(1,jp),prp(1,jp))
+c         else            
          ! Otherwise use the linearized version (no krylov  projection)
            call incomprp (vxp(1,jp),vyp(1,jp),vzp(1,jp),prp(1,jp))
-         endif
+c         endif
       endif
 c
       return
@@ -882,9 +882,20 @@ c
      $ ,             h2    (lx1,ly1,lz1,lelv)
       common /scrhi/ h2inv (lx1,ly1,lz1,lelv)
       COMMON /SCRCH/ PREXTR(LX2,LY2,LZ2,LELV)
-      logical ifprjp
 
-c
+      parameter(nset = 1 + lbelv/lelv)
+      common /orthov/ pset(lx2*ly2*lz2*lelv*mxprev,nset)
+      common /orthbi/ nprv(2)
+
+      logical ifprjp
+      logical newProj
+
+
+      newProj=.false.
+      ifprjp =.false.    ! project out previous pressure solutions?
+      istart=param(95)  
+      if (istep.ge.istart.and.istart.ne.0) ifprjp=.true.
+
       if (icalld.eq.0) tpres=0.0
       icalld=icalld+1
       npres=icalld
@@ -892,24 +903,42 @@ c
       ntot1  = lx1*ly1*lz1*nelv
       ntot2  = lx2*ly2*lz2*nelv
       intype = 1
-      dtbd   = bd(1)/dt
 
       call rzero   (h1,ntot1)
 c     call copy    (h2,vtrans(1,1,1,1,ifield),ntot1)
+      dtbd   = bd(1)/dt
       call cmult2  (h2,vtrans(1,1,1,1,ifield),dtbd,ntot1)
       call invers2 (h2inv,h2,ntot1)
 
       call opdiv   (dp,ux,uy,uz)
+
+c      bdti = -bd(1)/dt
+c      call cmult   (dp,bdti,ntot2)
       call chsign  (dp,ntot2)
+
+c      call add2col2(dp,bm2,usrdiv,ntot2) ! User-defined divergence.
+
       call ortho   (dp)
+
+      if (newProj) then
+
+        i = 1 
+        if (ifprjp)   call setrhsp  (dp,h1,h2,h2inv,pset(1,i),nprv(i))
+                      scaledt = dt/bd(1)
+                      scaledi = 1./scaledt
+                      call cmult(dp,scaledt,ntot2)        ! scale for tol
+                      call esolver  (dp,h1,h2,h2inv,intype)
+                      call cmult(dp,scaledi,ntot2)
+        if (ifprjp)   call gensolnp (dp,h1,h2,h2inv,pset(1,i),nprv(i))
+
+        call add2(up,dp,ntot2)
+
+      else
 
 
 C******************************************************************
 
 
-      ifprjp=.false.    ! project out previous pressure solutions?
-      istart=param(95)  
-      if (istep.ge.istart.and.istart.ne.0) ifprjp=.true.
 
       ! Most likely, the following can be commented out. (pff, 1/6/2010)
 c     if (npert.gt.1.or.ifbase)            ifprjp=.false.
@@ -923,9 +952,13 @@ cNOTE:  The "cpff" comments added 11/24/17 to avoid old-style projection,
 cNOTE:  which should be replaced with something more updated.
 
 C******************************************************************
-
+      endif
+  
       call opgradt (w1 ,w2 ,w3 ,dp)
       call opbinv  (dv1,dv2,dv3,w1 ,w2 ,w3 ,h2inv)
+c      dtb  = dt/bd(1)
+c      call opadd2cm (ux ,uy ,uz ,dv1,dv2,dv3, dtb )
+
       call opadd2  (ux ,uy ,uz ,dv1,dv2,dv3)
 
       call extrapprp(prextr)
