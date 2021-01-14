@@ -891,7 +891,7 @@ c
       logical newProj
 
 
-      newProj=.false.
+      newProj=.true.
       ifprjp =.false.    ! project out previous pressure solutions?
       istart=param(95)  
       if (istep.ge.istart.and.istart.ne.0) ifprjp=.true.
@@ -924,14 +924,14 @@ c      call add2col2(dp,bm2,usrdiv,ntot2) ! User-defined divergence.
 
         i = 1 
         if (ifprjp)   call setrhsp  (dp,h1,h2,h2inv,pset(1,i),nprv(i))
-                      scaledt = dt/bd(1)
-                      scaledi = 1./scaledt
-                      call cmult(dp,scaledt,ntot2)        ! scale for tol
+c                      scaledt = dt/bd(1)
+c                      scaledi = 1./scaledt
+c                      call cmult(dp,scaledt,ntot2)        ! scale for tol
                       call esolver  (dp,h1,h2,h2inv,intype)
-                      call cmult(dp,scaledi,ntot2)
+c                      call cmult(dp,scaledi,ntot2)
         if (ifprjp)   call gensolnp (dp,h1,h2,h2inv,pset(1,i),nprv(i))
 
-        call add2(up,dp,ntot2)
+c        call add2(up,dp,ntot2)
 
       else
 
