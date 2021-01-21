@@ -862,6 +862,23 @@ c
       include 'SIZE'
       include 'TOTAL'
       include 'CTIMER'
+
+      parameter (maxnproj=15)
+
+      real  pinput     (lx2*ly2*lz2*lelv)
+     $    , poutput    (lx2*ly2*lz2*lelv)
+     $    , pinputHist (lx2*ly2*lz2*lelv,maxnproj)
+     $    , poutputHist(lx2*ly2*lz2*lelv,maxnproj)
+     $    , pprojL(lx2*ly2*lz2*lelv),pprojR(lx2*ly2*lz2*lelv)
+     $    , alphapp(maxnproj)
+     $    , norm1 , norm2 
+     $    , test(maxnproj,maxnproj) 
+     $    , ptmp(lx2*ly2*lz2*lelv)
+     
+      integer nProjPert,i,j,j1,j2
+
+      common /projPert/    pinputHist , poutputHist , nProjPert
+
 c
       common /scrns/ w1    (lx1,ly1,lz1,lelv)
      $ ,             w2    (lx1,ly1,lz1,lelv)
@@ -875,6 +892,8 @@ c
       common /scrhi/ h2inv (lx1,ly1,lz1,lelv)
       COMMON /SCRCH/ PREXTR(LX2,LY2,LZ2,LELV)
       logical ifprjp
+
+      if (icalld.eq.0) nProjPert=0
 
 c
       if (icalld.eq.0) tpres=0.0
@@ -902,12 +921,164 @@ C******************************************************************
       ifprjp=.false.    ! project out previous pressure solutions?
       istart=param(95)  
       if (istep.ge.istart.and.istart.ne.0) ifprjp=.true.
+C       ifprjp=.false.
+
+        do i=1,ntot2
+          ptmp(i) = dp(i,1,1,1)
+        enddo 
+    
+
+      if (ifprjp .and. nProjPert>0) then
+
+        norm1 = glsc2(dp,dp,ntot2)
+        do j=1,nProjPert
+          alphapp(j) = glsc2(dp,pinputHist(1,j),ntot2)
+        enddo
+
+        do j=1,nProjPert
+        do i=1,ntot2
+          dp(i,1,1,1) = dp(i,1,1,1)-pinputHist(i,j)*alphapp(j)
+        enddo 
+        enddo
+
+        norm2 = glsc2(dp,dp,ntot2)
+        if(nio==0) write(*,"(A11,A22,1p3e13.4,I4)") " ",
+     $   "  Custom Proj.            "  
+     $        , sqrt(norm1 / volvm2) ,  sqrt(norm2 / volvm2) 
+     $        , sqrt(norm2/norm1) , nProjPert 
+      endif
+
+        
 
       ! Most likely, the following can be commented out. (pff, 1/6/2010)
 c     if (npert.gt.1.or.ifbase)            ifprjp=.false.
 cpff  if (ifprjp)   call setrhs  (dp,h1,h2,h2inv)
 
                     call esolver (dp,h1,h2,h2inv,intype)
+
+      if (ifprjp) then
+        ! Reconstruct solution
+
+        if (nProjPert>0) then
+         do j=1,nProjPert
+          do i=1,ntot2
+           dp(i,1,1,1) = dp(i,1,1,1)+poutputHist(i,j)*alphapp(j)
+          enddo
+         enddo
+        endif
+
+       do i=1,ntot2
+         poutput(i) = dp(i,1,1,1)
+       enddo  
+       call cdabdtp(pinput,poutput,h1,h2,h2inv,intype)
+
+
+
+
+
+
+        
+C         if (nio==0) write(*,'(A10,1p6E10.2)') "ALPHAS : " , alphapp(1:6)
+C         if (nio==0) write(*,'(A10,1p6E10.2)') "   " , alphapp(7:12)
+
+
+        ! Add current solution and do Gran Schmidt.
+
+
+        alphapp(1) = sqrt( 
+     $         glsc2(pinput , 
+     $               pinput ,ntot2)) 
+
+        ! Add to first entry and mode everyone else..
+        do i=1,ntot2
+          do j=1,nProjPert-1
+            poutputHist(i,nProjPert-j+1)  = poutputHist(i,nProjPert-j)
+            pinputHist (i,nProjPert-j+1)  = pinputHist (i,nProjPert-j)
+          enddo
+          poutputHist(i,1)  = dp(i,1,1,1)/alphapp(1)
+          pinputHist (i,1)  = pinput(i)/alphapp(1)
+        enddo 
+
+
+        ! Ortogonalize entry j1 with respect to the j previous ones
+        do j1=2,nProjPert
+          !projection coefs
+         do j=1,j1-1
+          alphapp(j) =  
+     $         glsc2(pinputHist (1,j), 
+     $               pinputHist (1,j1),ntot2)
+         enddo
+       
+
+         !subtract
+         do j=1,j1-1
+          do i=1,ntot2
+           pinputHist (i,j1)= pinputHist (i,j1) - 
+     $          pinputHist (i,j) * alphapp(j)
+           poutputHist(i,j1)= poutputHist(i,j1) - 
+     $          poutputHist(i,j) * alphapp(j)
+          enddo
+         enddo
+
+         !renormalize
+
+         alphapp(1) = sqrt(glsc2(pinputHist(1,j1),
+     $                           pinputHist(1,j1),ntot2))
+
+         do i=1,ntot2
+          poutputHist(i,j1)=poutputHist(i,j1)/alphapp(1)
+          pinputHist (i,j1)=pinputHist (i,j1)/alphapp(1)
+         enddo 
+        enddo
+
+        !verify Ortogonalization
+C         do j1=1,nProjPert
+C          do j2=1,nProjPert
+C            test(j1,j2) = (glsc2(pinputHist(1,j1),
+C      $                          pinputHist(1,j2),ntot2))
+C          enddo
+C         enddo
+C         if (nio==0) then
+C          print *, 'MATRIX'
+         
+C         do j1=1,maxnproj
+C          write(*,*)  test(j1,:)
+C         enddo
+C        endif
+
+       nProjPert = nProjPert + 1
+       if (nProjPert>maxnproj) nProjPert=maxnproj
+       
+
+      endif
+
+
+
+
+          ! check error in the RHS vector
+          norm1=0
+          do i=1,ntot2
+            norm1 = norm1 + (ptmp(i) - pinput(i))**2
+          enddo
+          norm1 = sqrt(glsum(norm1,1))
+
+
+          ! check error in the LHS vector
+          call esolver (ptmp,h1,h2,h2inv,intype)
+
+
+
+          alphapp(1) = glsc2(ptmp,ptmp,ntot2)
+          do i=1,ntot2
+            ptmp(i) = ptmp(i) - dp(i,1,1,1)
+          enddo
+          alphapp(2) = glsc2(ptmp,ptmp,ntot2)
+
+          if(nio==0) write(*,*) 'ERROR : ',norm1,sqrt(alphapp(2))
+     $     , sqrt(alphapp(1)) , sqrt(alphapp(2)/alphapp(1)) 
+
+
+
 
 cpff  if (ifprjp)   call gensoln (dp,h1,h2,h2inv)
 
