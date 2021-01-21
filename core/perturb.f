@@ -863,21 +863,22 @@ c
       include 'TOTAL'
       include 'CTIMER'
 
-      parameter (maxnproj=15)
+#define debugPertProj true     
 
       real  pinput     (lx2*ly2*lz2*lelv)
      $    , poutput    (lx2*ly2*lz2*lelv)
-     $    , pinputHist (lx2*ly2*lz2*lelv,maxnproj)
-     $    , poutputHist(lx2*ly2*lz2*lelv,maxnproj)
-     $    , pprojL(lx2*ly2*lz2*lelv),pprojR(lx2*ly2*lz2*lelv)
-     $    , alphapp(maxnproj)
+     $    , pinputHist (lx2*ly2*lz2*lelv,mxprev,lpert)
+     $    , poutputHist(lx2*ly2*lz2*lelv,mxprev,lpert)
+     $    , alphapp(mxprev)
      $    , norm1 , norm2 
-     $    , test(maxnproj,maxnproj) 
-     $    , ptmp(lx2*ly2*lz2*lelv)
-     
       integer nProjPert,i,j,j1,j2
-
-      common /projPert/    pinputHist , poutputHist , nProjPert
+#ifdef debugPertProj     
+       real  normsAtProjs(mxprev)
+       real  test(mxprev,mxprev) , ptmp(lx2*ly2*lz2*lelv)
+       real  etime_new,etime_old,etime_newac,etime_oldac
+       save etime_newac,etime_oldac
+#endif     
+      save     pinputHist , poutputHist , nProjPert
 
 c
       common /scrns/ w1    (lx1,ly1,lz1,lelv)
@@ -923,22 +924,35 @@ C******************************************************************
       if (istep.ge.istart.and.istart.ne.0) ifprjp=.true.
 C       ifprjp=.false.
 
-        do i=1,ntot2
-          ptmp(i) = dp(i,1,1,1)
-        enddo 
+#ifdef debugPertProj
+             do i=1,ntot2
+               ptmp(i) = dp(i,1,1,1)
+             enddo 
+      if (istep==0) then       
+        etime_newac = 0 
+        etime_oldac = 0  
+      endif 
+      etime_new =  - dnekclock()
+#endif
     
 
       if (ifprjp .and. nProjPert>0) then
 
         norm1 = glsc2(dp,dp,ntot2)
         do j=1,nProjPert
-          alphapp(j) = glsc2(dp,pinputHist(1,j),ntot2)
+          alphapp(j) = glsc2(dp,pinputHist(1,j,jp),ntot2)
         enddo
 
         do j=1,nProjPert
-        do i=1,ntot2
-          dp(i,1,1,1) = dp(i,1,1,1)-pinputHist(i,j)*alphapp(j)
-        enddo 
+          do i=1,ntot2
+            dp(i,1,1,1) = dp(i,1,1,1)-pinputHist(i,j,jp)*alphapp(j)
+          enddo 
+#ifdef debugPertProj
+        etime_new =  etime_new + dnekclock()
+        normsAtProjs(j) = glsc2(dp,dp,ntot2)
+        etime_new =  etime_new - dnekclock()
+#endif
+       
         enddo
 
         norm2 = glsc2(dp,dp,ntot2)
@@ -948,38 +962,28 @@ C       ifprjp=.false.
      $        , sqrt(norm2/norm1) , nProjPert 
       endif
 
-        
-
-      ! Most likely, the following can be commented out. (pff, 1/6/2010)
-c     if (npert.gt.1.or.ifbase)            ifprjp=.false.
-cpff  if (ifprjp)   call setrhs  (dp,h1,h2,h2inv)
-
-                    call esolver (dp,h1,h2,h2inv,intype)
+      call esolver (dp,h1,h2,h2inv,intype)
 
       if (ifprjp) then
         ! Reconstruct solution
-
         if (nProjPert>0) then
          do j=1,nProjPert
           do i=1,ntot2
-           dp(i,1,1,1) = dp(i,1,1,1)+poutputHist(i,j)*alphapp(j)
+           dp(i,1,1,1) = dp(i,1,1,1)+poutputHist(i,j,jp)*alphapp(j)
           enddo
          enddo
         endif
 
+       ! Reconstruct consistent input and output
        do i=1,ntot2
          poutput(i) = dp(i,1,1,1)
        enddo  
        call cdabdtp(pinput,poutput,h1,h2,h2inv,intype)
 
 
-
-
-
-
         
-C         if (nio==0) write(*,'(A10,1p6E10.2)') "ALPHAS : " , alphapp(1:6)
-C         if (nio==0) write(*,'(A10,1p6E10.2)') "   " , alphapp(7:12)
+C DEB        if (nio==0) write(*,'(A10,1p6E10.2)') "ALPHAS : " , alphapp(1:6)
+C DEB        if (nio==0) write(*,'(A10,1p6E10.2)') "   " , alphapp(7:12)
 
 
         ! Add current solution and do Gran Schmidt.
@@ -992,11 +996,11 @@ C         if (nio==0) write(*,'(A10,1p6E10.2)') "   " , alphapp(7:12)
         ! Add to first entry and mode everyone else..
         do i=1,ntot2
           do j=1,nProjPert-1
-            poutputHist(i,nProjPert-j+1)  = poutputHist(i,nProjPert-j)
-            pinputHist (i,nProjPert-j+1)  = pinputHist (i,nProjPert-j)
+          poutputHist(i,nProjPert-j+1,jp)=poutputHist(i,nProjPert-j,jp)
+          pinputHist (i,nProjPert-j+1,jp)=pinputHist (i,nProjPert-j,jp)
           enddo
-          poutputHist(i,1)  = dp(i,1,1,1)/alphapp(1)
-          pinputHist (i,1)  = pinput(i)/alphapp(1)
+          poutputHist(i,1,jp)  = dp(i,1,1,1)/alphapp(1)
+          pinputHist (i,1,jp)  = pinput(i)/alphapp(1)
         enddo 
 
 
@@ -1005,29 +1009,29 @@ C         if (nio==0) write(*,'(A10,1p6E10.2)') "   " , alphapp(7:12)
           !projection coefs
          do j=1,j1-1
           alphapp(j) =  
-     $         glsc2(pinputHist (1,j), 
-     $               pinputHist (1,j1),ntot2)
+     $         glsc2(pinputHist (1,j,jp), 
+     $               pinputHist (1,j1,jp),ntot2)
          enddo
        
 
          !subtract
          do j=1,j1-1
           do i=1,ntot2
-           pinputHist (i,j1)= pinputHist (i,j1) - 
-     $          pinputHist (i,j) * alphapp(j)
-           poutputHist(i,j1)= poutputHist(i,j1) - 
-     $          poutputHist(i,j) * alphapp(j)
+           pinputHist (i,j1,jp)= pinputHist (i,j1,jp) - 
+     $          pinputHist (i,j,jp) * alphapp(j)
+           poutputHist(i,j1,jp)= poutputHist(i,j1,jp) - 
+     $          poutputHist(i,j,jp) * alphapp(j)
           enddo
          enddo
 
          !renormalize
 
-         alphapp(1) = sqrt(glsc2(pinputHist(1,j1),
-     $                           pinputHist(1,j1),ntot2))
+         alphapp(1) = sqrt(glsc2(pinputHist(1,j1,jp),
+     $                           pinputHist(1,j1,jp),ntot2))
 
          do i=1,ntot2
-          poutputHist(i,j1)=poutputHist(i,j1)/alphapp(1)
-          pinputHist (i,j1)=pinputHist (i,j1)/alphapp(1)
+          poutputHist(i,j1,jp)=poutputHist(i,j1,jp)/alphapp(1)
+          pinputHist (i,j1,jp)=pinputHist (i,j1,jp)/alphapp(1)
          enddo 
         enddo
 
@@ -1041,49 +1045,65 @@ C         enddo
 C         if (nio==0) then
 C          print *, 'MATRIX'
          
-C         do j1=1,maxnproj
+C         do j1=1,mxprev
 C          write(*,*)  test(j1,:)
 C         enddo
 C        endif
 
        nProjPert = nProjPert + 1
-       if (nProjPert>maxnproj) nProjPert=maxnproj
+       if (nProjPert>param(93)) nProjPert=param(93)
        
 
       endif
 
-
-
+#ifdef debugPertProj
+       etime_new = etime_new + dnekclock() 
+       etime_old = - dnekclock() 
 
           ! check error in the RHS vector
-          norm1=0
-          do i=1,ntot2
-            norm1 = norm1 + (ptmp(i) - pinput(i))**2
-          enddo
-          norm1 = sqrt(glsum(norm1,1))
+       norm2=0
+       do i=1,ntot2
+         norm2 = norm2 + (ptmp(i) - pinput(i))**2
+       enddo
+       norm2 = sqrt(glsum(norm2,1))
 
 
-          ! check error in the LHS vector
-          call esolver (ptmp,h1,h2,h2inv,intype)
+       ! check error in the LHS vector
+       etime_old = - dnekclock() 
+       call esolver (ptmp,h1,h2,h2inv,intype)
+       etime_old = etime_old + dnekclock() 
 
-
-
-          alphapp(1) = glsc2(ptmp,ptmp,ntot2)
-          do i=1,ntot2
-            ptmp(i) = ptmp(i) - dp(i,1,1,1)
-          enddo
-          alphapp(2) = glsc2(ptmp,ptmp,ntot2)
-
-          if(nio==0) write(*,*) 'ERROR : ',norm1,sqrt(alphapp(2))
-     $     , sqrt(alphapp(1)) , sqrt(alphapp(2)/alphapp(1)) 
+       etime_newac = etime_newac + etime_new
+       etime_oldac = etime_oldac + etime_old
 
 
 
+       alphapp(1) = glsc2(ptmp,ptmp,ntot2)
+       do i=1,ntot2
+         ptmp(i) = ptmp(i) - dp(i,1,1,1)
+       enddo
+       alphapp(2) = glsc2(ptmp,ptmp,ntot2)
 
-cpff  if (ifprjp)   call gensoln (dp,h1,h2,h2inv)
+       if(nio==0) write(*,"(A15,1p5E12.3)") 'ERROR : ',norm2
+     $     ,sqrt(alphapp(2)), sqrt(alphapp(1)) 
+     $     ,sqrt(alphapp(2)/alphapp(1)) 
+       if(nio==0) write(*,"(A15,1p3E12.3)") 'Clock iter : ', etime_new 
+     $            , etime_old ,etime_new/etime_old  
+       if(nio==0) write(*,"(A15,1p3E12.3)") 'Clock acc  : ', etime_newac 
+     $            , etime_oldac ,etime_newac/etime_oldac 
 
-cNOTE:  The "cpff" comments added 11/24/17 to avoid old-style projection,
-cNOTE:  which should be replaced with something more updated.
+
+        if (nio==0) then
+          write(*,*) "Norms after each projection : "  
+          write(*,"(I7,1P2E10.3)") 0 , norm1 , 1.00
+          do j=1,nProjPert
+          write(*,"(I7,1P2E10.3)") j , normsAtProjs(j) ,
+     $            normsAtProjs(j)/norm1
+        enddo
+        endif
+
+
+#endif
 
 C******************************************************************
 
