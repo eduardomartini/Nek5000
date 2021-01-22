@@ -873,8 +873,9 @@ c
      $    , norm1 , norm2 
       integer nProjPert,i,j,j1,j2
 #ifdef debugPertProj     
-       real  normsAtProjs(mxprev)
+       real  normsAtProjs(mxprev) , normsDeb(2,2)
        real  test(mxprev,mxprev) , ptmp(lx2*ly2*lz2*lelv)
+       real  ptmp2(lx2*ly2*lz2*lelv)
        real  etime_new,etime_old,etime_newac,etime_oldac
        save etime_newac,etime_oldac
 #endif     
@@ -925,9 +926,9 @@ C******************************************************************
 C       ifprjp=.false.
 
 #ifdef debugPertProj
-             do i=1,ntot2
-               ptmp(i) = dp(i,1,1,1)
-             enddo 
+       do i=1,ntot2
+         ptmp(i) = dp(i,1,1,1)
+       enddo 
       if (istep==0) then       
         etime_newac = 0 
         etime_oldac = 0  
@@ -962,10 +963,27 @@ C       ifprjp=.false.
      $        , sqrt(norm2/norm1) , nProjPert 
       endif
 
-      call esolver (dp,h1,h2,h2inv,intype)
+        do i=1,ntot2
+          ptmp2(i) = dp(i,1,1,1)
+        enddo 
+ 
+       call esolver (dp,h1,h2,h2inv,intype)
 
       if (ifprjp) then
         ! Reconstruct solution
+        call cdabdtp(pinput,dp,h1,h2,h2inv,intype)
+
+        normsDeb=0
+        normsDeb(1,1) = 0
+        do i=1,ntot2
+         normsDeb(1,1) = normsDeb(1,1) + (ptmp2(i)-pinput(i))**2
+        enddo
+        normsDeb(1,1) = sqrt(glsum(normsDeb(1,1),1))
+
+
+
+
+
         if (nProjPert>0) then
          do j=1,nProjPert
           do i=1,ntot2
@@ -979,6 +997,24 @@ C       ifprjp=.false.
          poutput(i) = dp(i,1,1,1)
        enddo  
        call cdabdtp(pinput,poutput,h1,h2,h2inv,intype)
+
+        do i=1,ntot2
+         normsDeb(1,2) = normsDeb(1,2) + (ptmp(i)-pinput(i))**2
+        enddo
+        normsDeb(1,2) = sqrt(glsum(normsDeb(1,2),1))
+
+
+
+
+
+C         if(nio==0) write(*,*) "Recomputing... inputs",
+C      $    modulo(istep,int(param(93))) ,int(param(93))
+C        if (modulo(istep,int(param(93)))==0) then
+C        do j=1,nProjPert-1
+C          call cdabdtp(pinputHist (1,j,jp),
+C      $                poutputHist(1,j,jp),h1,h2,h2inv,intype)
+C        enddo
+C        endif
 
 
         
@@ -1033,6 +1069,7 @@ C DEB        if (nio==0) write(*,'(A10,1p6E10.2)') "   " , alphapp(7:12)
           poutputHist(i,j1,jp)=poutputHist(i,j1,jp)/alphapp(1)
           pinputHist (i,j1,jp)=pinputHist (i,j1,jp)/alphapp(1)
          enddo 
+
         enddo
 
         !verify Ortogonalization
@@ -1050,12 +1087,6 @@ C          write(*,*)  test(j1,:)
 C         enddo
 C        endif
 
-       nProjPert = nProjPert + 1
-       if (nProjPert>param(93)) nProjPert=param(93)
-       
-
-      endif
-
 #ifdef debugPertProj
        etime_new = etime_new + dnekclock() 
        etime_old = - dnekclock() 
@@ -1068,10 +1099,28 @@ C        endif
        norm2 = sqrt(glsum(norm2,1))
 
 
+        do i=1,ntot2
+         ptmp2(i) = ptmp(i)
+        enddo
+
        ! check error in the LHS vector
        etime_old = - dnekclock() 
        call esolver (ptmp,h1,h2,h2inv,intype)
        etime_old = etime_old + dnekclock() 
+
+
+
+       call cdabdtp(pinput,ptmp,h1,h2,h2inv,intype)
+
+        do i=1,ntot2
+         normsDeb(2,2) = normsDeb(2,2) + (ptmp2(i)-pinput(i))**2
+        enddo
+        normsDeb(2,2) = sqrt(glsum(normsDeb(2,2),1))
+
+
+       if(NIO==0) write(*,*) "Input Errors (proj, rec)" ,normsDeb(1,1)
+     $  ,normsDeb(1,2),normsDeb(2,2)
+
 
        etime_newac = etime_newac + etime_new
        etime_oldac = etime_oldac + etime_old
@@ -1079,10 +1128,11 @@ C        endif
 
 
        alphapp(1) = glsc2(ptmp,ptmp,ntot2)
+       alphapp(2) = 0 
        do i=1,ntot2
-         ptmp(i) = ptmp(i) - dp(i,1,1,1)
+         alphapp(2) = alphapp(2) + (ptmp(i) - dp(i,1,1,1) ) ** 2
        enddo
-       alphapp(2) = glsc2(ptmp,ptmp,ntot2)
+       alphapp(2) = glsum(alphapp(2),1)
 
        if(nio==0) write(*,"(A15,1p5E12.3)") 'ERROR : ',norm2
      $     ,sqrt(alphapp(2)), sqrt(alphapp(1)) 
@@ -1102,8 +1152,16 @@ C        endif
         enddo
         endif
 
+        do i=1,ntot2
+          dp(i,1,1,1) = ptmp(i)
+        enddo
 
 #endif
+       nProjPert = nProjPert + 1
+       if (nProjPert>param(93)) nProjPert=param(93)
+      endif
+
+
 
 C******************************************************************
 
