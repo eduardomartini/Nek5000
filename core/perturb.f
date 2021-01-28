@@ -881,6 +881,9 @@ c
       common /scrhi/ h2inv (lx1,ly1,lz1,lelv)
       COMMON /SCRCH/ PREXTR(LX2,LY2,LZ2,LELV)
       logical ifprjp
+      real pset (lx2*ly2*lz2*lelv,mxprev)
+      integer nprv
+      save pset,nprv
 
       if (icalld.eq.0) nProjPert=0
 
@@ -908,26 +911,25 @@ C******************************************************************
 
 
       ifprjp=.false.    ! project out previous pressure solutions?
-      istart=param(95)  
+      istart=abs(param(95))  
       if (istep.ge.istart.and.istart.ne.0) ifprjp=.true.
 C       ifprjp=.false.
 
       if (ifprjp) then
-C         call copy(dpcheck1,dp,ntot2)
-        call setrhsp_pert(dp)
+        if (param(95)<0) call copy(dpcheck1,dp,ntot2)
+        if (param(95)>0) call setrhsp_pert(dp)
+C         call setrhsp  (dp,h1,h2,h2inv,pset,nprv)
+
       endif
       call esolver (dp,h1,h2,h2inv,intype)
 
       if (ifprjp) then
         ! Reconstruct solution
-        call gensolnp_pert(dp)
-        call updateHist_pert(dp,h1,h2,h2inv,intype)
-
-C         call cdabdtp(dpcheck2,dp,h1,h2,h2inv,intype)
-C         call sub2(dpcheck1,dpcheck2,ntot2)
-C         norm1 = glsc2(dpcheck1,dpcheck1,ntot2)
-C         if (nio==0) write(*,*) "Input error :" , sqrt(norm1)
-        
+        if (param(95)<0) then
+          call gensolnp_pert(dp)
+          call updateHist_pert(dp,h1,h2,h2inv,intype)
+        endif
+        if (param(95)>0) call gensolnp (dp,h1,h2,h2inv,pset,nprv)
       endif
 
 
@@ -1023,11 +1025,13 @@ c      include 'CTIMER'
       ntot2=lx2*ly2*lz2*lelv
 
        !  Move all previous entries forward.
-        do i=1,ntot2
-          do j=1,nProjPert-1
-          poutputHist(i,nProjPert-j+1,jp)=poutputHist(i,nProjPert-j,jp)
-          pinputHist (i,nProjPert-j+1,jp)=pinputHist (i,nProjPert-j,jp)
+        do j=1,nProjPert-1
+          do i=1,ntot2
+           poutputHist(i,nProjPert-j+1,jp)=poutputHist(i,nProjPert-j,jp)
+           pinputHist (i,nProjPert-j+1,jp)=pinputHist (i,nProjPert-j,jp)
           enddo
+C           call cdabdtp(pinputHist(1,nProjPert-j+1,jp),
+C      $       poutputHist(1,nProjPert-j+1,jp),h1,h2,h2inv,intype)
         enddo 
        ! Reconstruct consistent input from output, add to the first 
        ! of history and normalize 
@@ -1077,13 +1081,12 @@ c      include 'CTIMER'
      $                          pinputHist(1,j2,jp),ntot2))
          enddo
         enddo
-C         if (nio==0) then
-C           print *, 'MATRIX'
-         
-C           do j1=1,nProjPert
-C             write(*,*)  test(j1,1:nProjPert)
-C           enddo
-C         endif
+        if (nio==0) then
+          print *, 'MATRIX'  
+          do j1=1,nProjPert
+            write(*,*)  test(j1,1:nProjPert)
+          enddo
+        endif
 
       end 
 
